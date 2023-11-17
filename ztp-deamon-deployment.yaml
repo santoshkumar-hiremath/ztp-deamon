@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ztp-deamon-deployment
+  labels:
+    app: ztp-deamon
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ztp-deamon
+  template:
+    metadata:
+      labels:
+        app: ztp-deamon
+        component: ztp-deamon
+    spec:
+      serviceAccountName: kubectl-admin-ztp
+      initContainers:
+        - name: init-ztp-deamon
+          image: {{ .Values.images.deamon.repository }}:{{ .Values.images.deamon.tag }}
+          imagePullPolicy: {{ .Values.images.deamon.pullPolicy }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              export NO_PROXY="*";
+              for i in $(seq 1 10); do
+                response=$(curl -s -f "http://$(kubectl get svc -n edge | awk '/webserver/ {print $4}'):8080/health")
+                if echo "$response" | grep -q '"status": "healthy"'; then
+                  sleep 60
+                  exit 0
+                else
+                  sleep 5
+                fi
+              done
+              exit 1
+      containers:
+        - name: ztp-deamon
+          image: {{ .Values.images.deamon.repository }}:{{ .Values.images.deamon.tag }}
+          imagePullPolicy: {{ .Values.images.deamon.pullPolicy }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              python3 /opt/airflow/deamon/main.py
+          envFrom: {{- include "custom_airflow_environment_from" . | default "\n  []" | indent 12 }}
+          env:
+            {{- include "custom_airflow_environment" . | indent 12 }}
